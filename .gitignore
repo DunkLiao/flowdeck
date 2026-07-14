@@ -1,0 +1,33 @@
+# Local agent/tooling state
+.agents/
+.codex/
+
+# Dependencies and package-manager artifacts (not required for normal use)
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Test, coverage, and build outputs
+coverage/
+dist/
+build/
+.cache/
+.nyc_output/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS/editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Keep the standalone runtime tracked.
+!src/flowdeck.bundle.js

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowdeck 看板</title>
+  <!-- Global Styling -->
+  <link rel="stylesheet" href="./src/ui/global.css">
+</head>
+<body>
+  <!-- Decorative background elements for premium feel -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <div id="app" class="app-layout">
+    <!-- Left Sidebar: Board Lists & Settings -->
+    <aside id="sidebar" class="sidebar glass-panel">
+      <div class="sidebar-header">
+        <div class="brand">
+          <i data-lucide="layout-dashboard" class="brand-icon"></i>
+          <span>Flowdeck</span>
+        </div>
+      </div>
+      
+      <div class="sidebar-content">
+        <div class="section-title">我的看板</div>
+        <div id="board-list" class="board-list">
+          <!-- Dynamically populated boards -->
+        </div>
+        <button id="btn-create-board" class="btn btn-secondary btn-full">
+          <i data-lucide="plus"></i>
+          <span>新增看板</span>
+        </button>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="btn-theme-toggle" class="btn btn-tertiary">
+          <i data-lucide="sun" class="theme-toggle-icon"></i>
+          <span>淺色模式</span>
+        </button>
+        <button id="btn-export-data" class="btn btn-tertiary">
+          <i data-lucide="download"></i>
+          <span>匯出備份</span>
+        </button>
+        <button id="btn-import-data" class="btn btn-tertiary">
+          <i data-lucide="upload"></i>
+          <span>匯入還原</span>
+        </button>
+        <button id="btn-reset-initial-data" class="btn btn-tertiary btn-danger-ghost">
+          <i data-lucide="rotate-ccw"></i>
+          <span>還原初始設定</span>
+        </button>
+        <input type="file" id="file-import" accept=".json" style="display: none;">
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-workspace">
+      <!-- Top Navigation bar -->
+      <header class="topbar glass-panel">
+        <div class="topbar-left">
+          <h1 id="active-board-title" class="board-title" contenteditable="true" spellcheck="false">載入中...</h1>
+        </div>
+        
+        <div class="topbar-right">
+          <!-- Search & Filters Container -->
+          <div class="search-filter-container">
+            <div class="search-box">
+              <i data-lucide="search" class="search-icon"></i>
+              <input type="text" id="search-input" placeholder="搜尋卡片標題或描述..." autocomplete="off">
+            </div>
+            
+            <button id="btn-filter-menu" class="btn btn-filter">
+              <i data-lucide="filter"></i>
+              <span>篩選</span>
+              <span id="active-filters-count" class="badge" style="display: none;">0</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Columns Workspace Container -->
+      <div id="board-columns-container" class="columns-container">
+        <!-- Dynamically populated columns and cards -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Dynamic Filter Dropdown (Float Panel) -->
+  <div id="filter-dropdown" class="dropdown-panel glass-panel hidden">
+    <div class="dropdown-header">
+      <span>篩選條件</span>
+      <button id="btn-clear-filters" class="btn btn-link">清除全部</button>
+    </div>
+    <div class="dropdown-body">
+      <!-- Priority Filter -->
+      <div class="filter-group">
+        <div class="filter-label">優先權</div>
+        <div class="filter-options">
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-priority" value="高">
+            <span class="custom-checkbox priority-high">高</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-priority" value="中">
+            <span class="custom-checkbox priority-medium">中</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-priority" value="低">
+            <span class="custom-checkbox priority-low">低</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-priority" value="無">
+            <span class="custom-checkbox priority-none">無</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Tags Filter -->
+      <div class="filter-group">
+        <div class="filter-label">標籤</div>
+        <div id="filter-tags-list" class="filter-tags-list">
+          <!-- Tags dynamically loaded here -->
+        </div>
+      </div>
+
+      <!-- Due Date Filter -->
+      <div class="filter-group">
+        <div class="filter-label">到期日</div>
+        <div class="filter-options">
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-due-date" value="overdue">
+            <span class="custom-checkbox">已過期</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-due-date" value="today">
+            <span class="custom-checkbox">今天到期</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="filter-due-date" value="week">
+            <span class="custom-checkbox">本週到期</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modals Container (Card Detail, Custom Confirmation etc.) -->
+  <div id="modal-container" class="modal-overlay hidden">
+    <!-- Card Detail Modal -->
+    <div id="card-detail-modal" class="modal-content glass-panel hidden">
+      <button class="modal-close" id="btn-close-modal">
+        <i data-lucide="x"></i>
+      </button>
+      
+      <div class="modal-grid">
+        <!-- Left: Card title, description, checklist -->
+        <div class="modal-main">
+          <div class="modal-title-wrapper">
+            <h2 id="modal-card-title" contenteditable="true" spellcheck="false" placeholder="任務標題"></h2>
+          </div>
+          
+          <div class="modal-description-wrapper">
+            <div class="modal-section-title">
+              <i data-lucide="align-left"></i>
+              <span>描述</span>
+              <button id="btn-edit-desc" class="btn btn-sm btn-tertiary">編輯</button>
+            </div>
+            
+            <!-- Read-only / rendered Markdown view -->
+            <div id="card-desc-preview" class="markdown-body"></div>
+            <!-- Edit Textarea -->
+            <textarea id="card-desc-textarea" class="hidden" placeholder="支援 Markdown 格式..."></textarea>
+          </div>
+          
+          <div class="modal-checklist-wrapper">
+            <div class="modal-section-title">
+              <i data-lucide="check-square"></i>
+              <span>待辦清單</span>
+              <span id="checklist-progress-text" class="progress-text">0/0</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="checklist-progress-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="modal-checklist-items" class="checklist-items">
+              <!-- Checklist items will render here -->
+            </div>
+            <div class="checklist-add-form">
+              <input type="text" id="input-new-checklist-item" placeholder="新增待辦項目...">
+              <button id="btn-add-checklist-item" class="btn btn-sm btn-primary">新增</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Right: Card settings (due date, priority, tags) -->
+        <div class="modal-sidebar">
+          <div class="sidebar-widget">
+            <div class="widget-title">狀態欄位</div>
+            <select id="modal-select-column" class="select-control">
+              <!-- Dynamically populated columns -->
+            </select>
+          </div>
+
+          <div class="sidebar-widget">
+            <div class="widget-title">優先權</div>
+            <select id="modal-select-priority" class="select-control">
+              <option value="無">無</option>
+              <option value="低">低</option>
+              <option value="中">中</option>
+              <option value="高">高</option>
+            </select>
+          </div>
+
+          <div class="sidebar-widget">
+            <div class="widget-title">到期日</div>
+            <input type="date" id="modal-input-duedate" class="date-control">
+          </div>
+
+          <div class="sidebar-widget">
+            <div class="widget-title">標籤</div>
+            <div id="modal-card-tags" class="modal-tags-container">
+              <!-- Card's current tags -->
+            </div>
+            <button id="btn-manage-tags" class="btn btn-xs btn-secondary">
+              <i data-lucide="tag"></i>
+              <span>管理標籤</span>
+            </button>
+          </div>
+
+          <div class="sidebar-widget actions-widget">
+            <button id="btn-delete-card" class="btn btn-danger btn-full">
+              <i data-lucide="trash-2"></i>
+              <span>刪除卡片</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tag Management Popup (Sub-Modal) -->
+  <div id="tag-manager-modal" class="tag-manager-overlay hidden">
+    <div class="tag-manager-content glass-panel">
+      <div class="tag-manager-header">
+        <h3>管理標籤</h3>
+        <button id="btn-close-tag-manager" class="btn-icon-close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="tag-manager-body">
+        <div class="tag-creator">
+          <input type="text" id="input-new-tag-name" placeholder="標籤名稱...">
+          <div class="color-picker-wrapper">
+            <input type="color" id="input-new-tag-color" value="#3b82f6">
+          </div>
+          <button id="btn-create-tag" class="btn btn-primary">建立</button>
+        </div>
+        <div id="tag-manager-list" class="tag-manager-list">
+          <!-- All available tags listed with delete options -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dialog / Confirm Overlay -->
+  <div id="dialog-overlay" class="dialog-overlay hidden">
+    <div class="dialog-box glass-panel">
+      <div class="dialog-icon danger" id="dialog-icon-container">
+        <i data-lucide="alert-triangle"></i>
+      </div>
+      <h3 id="dialog-title">確認操作</h3>
+      <p id="dialog-message">您確定要執行此操作嗎？</p>
+      <div class="dialog-buttons">
+        <button id="btn-dialog-cancel" class="btn btn-secondary">取消</button>
+        <button id="btn-dialog-confirm" class="btn btn-danger">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Input Dialog Overlay (e.g. for creating new boards) -->
+  <div id="input-dialog-overlay" class="dialog-overlay hidden">
+    <div class="dialog-box glass-panel">
+      <h3 id="input-dialog-title">新建看板</h3>
+      <div class="dialog-body">
+        <input type="text" id="input-dialog-text" placeholder="請輸入名稱..." autocomplete="off">
+      </div>
+      <div class="dialog-buttons">
+        <button id="btn-input-dialog-cancel" class="btn btn-secondary">取消</button>
+        <button id="btn-input-dialog-confirm" class="btn btn-primary">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Standalone App Entry: works from file:// without Python or a local server -->
+  <script src="./src/flowdeck.bundle.js"></script>
+</body>
+</html>
