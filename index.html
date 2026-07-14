@@ -53,11 +53,15 @@
         <input type="file" id="file-import" accept=".json" style="display: none;">
       </div>
     </aside>
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden" aria-hidden="true"></div>
 
     <!-- Main Workspace -->
     <main class="main-workspace">
       <!-- Top Navigation bar -->
       <header class="topbar glass-panel">
+        <button id="btn-mobile-sidebar" class="btn mobile-sidebar-toggle" type="button" aria-label="開啟看板選單" aria-controls="sidebar" aria-expanded="false">
+          <i data-lucide="menu"></i>
+        </button>
         <div class="topbar-left">
           <h1 id="active-board-title" class="board-title" contenteditable="true" spellcheck="false">載入中...</h1>
         </div>

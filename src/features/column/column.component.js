@@ -18,6 +18,13 @@ export class ColumnComponent {
     this.activeBoardId = null;
     
     this.draggedColumnEl = null;
+    this.touchColumnDrag = {
+      columnEl: null,
+      timerId: null,
+      active: false,
+      startX: 0,
+      startY: 0
+    };
 
     this.initEvents();
   }
@@ -138,6 +145,7 @@ export class ColumnComponent {
 
     // 綁定拖曳欄位 (Drag & Drop) 事件
     this.setupColumnDragAndDrop();
+    this.setupTouchColumnDrag();
   }
 
   /**
@@ -175,11 +183,7 @@ export class ColumnComponent {
       
       const targetColumn = e.target.closest('.kanban-column');
       if (targetColumn && targetColumn !== this.draggedColumnEl) {
-        const rect = targetColumn.getBoundingClientRect();
-        const midpoint = rect.left + rect.width / 2;
-        
-        // 根據滑鼠在目標欄位左側或右側，決定插入位置
-        if (e.clientX < midpoint) {
+        if (this.shouldInsertBeforeColumn(targetColumn, e.clientX, e.clientY)) {
           this.containerEl.insertBefore(this.draggedColumnEl, targetColumn);
         } else {
           this.containerEl.insertBefore(this.draggedColumnEl, targetColumn.nextSibling);
@@ -197,6 +201,117 @@ export class ColumnComponent {
         await this.saveDOMColumnOrder();
       }
     });
+  }
+
+  setupTouchColumnDrag() {
+    this.containerEl.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' || event.button !== 0) return;
+      if (!event.target.closest('.column-header') || event.target.closest('button')) return;
+
+      const columnEl = event.target.closest('.kanban-column');
+      if (!columnEl) return;
+
+      this.clearTouchColumnDragTimer();
+      this.touchColumnDrag.columnEl = columnEl;
+      this.touchColumnDrag.active = false;
+      this.touchColumnDrag.startX = event.clientX;
+      this.touchColumnDrag.startY = event.clientY;
+
+      this.touchColumnDrag.timerId = window.setTimeout(() => {
+        if (!this.touchColumnDrag.columnEl) return;
+        this.touchColumnDrag.active = true;
+        this.draggedColumnEl = columnEl;
+        columnEl.classList.add('touch-dragging');
+        try {
+          columnEl.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable if the pointer already ended.
+        }
+      }, 220);
+    });
+
+    this.containerEl.addEventListener('pointermove', (event) => {
+      if (!this.touchColumnDrag.columnEl) return;
+
+      const deltaX = Math.abs(event.clientX - this.touchColumnDrag.startX);
+      const deltaY = Math.abs(event.clientY - this.touchColumnDrag.startY);
+      if (!this.touchColumnDrag.active && (deltaX > 8 || deltaY > 8)) {
+        this.cancelTouchColumnDrag();
+        return;
+      }
+
+      if (!this.touchColumnDrag.active) return;
+      event.preventDefault();
+
+      const targetEl = document.elementFromPoint(event.clientX, event.clientY);
+      const targetColumn = targetEl ? targetEl.closest('.kanban-column') : null;
+      if (!targetColumn || targetColumn === this.touchColumnDrag.columnEl) return;
+
+      if (this.shouldInsertBeforeColumn(targetColumn, event.clientX, event.clientY)) {
+        this.containerEl.insertBefore(this.touchColumnDrag.columnEl, targetColumn);
+      } else {
+        this.containerEl.insertBefore(this.touchColumnDrag.columnEl, targetColumn.nextSibling);
+      }
+    });
+
+    const finish = (event) => {
+      if (!this.touchColumnDrag.columnEl) return;
+      if (!this.touchColumnDrag.active) {
+        this.cancelTouchColumnDrag();
+        return;
+      }
+
+      event.preventDefault();
+      void this.finishTouchColumnDrag();
+    };
+
+    this.containerEl.addEventListener('pointerup', finish);
+    this.containerEl.addEventListener('pointercancel', () => this.cancelTouchColumnDrag());
+  }
+
+  clearTouchColumnDragTimer() {
+    if (this.touchColumnDrag.timerId) {
+      window.clearTimeout(this.touchColumnDrag.timerId);
+      this.touchColumnDrag.timerId = null;
+    }
+  }
+
+  cancelTouchColumnDrag() {
+    this.clearTouchColumnDragTimer();
+    if (this.touchColumnDrag.columnEl) {
+      this.touchColumnDrag.columnEl.classList.remove('touch-dragging');
+    }
+    this.touchColumnDrag.columnEl = null;
+    this.touchColumnDrag.active = false;
+    this.draggedColumnEl = null;
+  }
+
+  async finishTouchColumnDrag() {
+    const columnEl = this.touchColumnDrag.columnEl;
+    this.clearTouchColumnDragTimer();
+
+    if (!columnEl) {
+      this.cancelTouchColumnDrag();
+      return;
+    }
+
+    try {
+      await this.saveDOMColumnOrder();
+    } finally {
+      columnEl.classList.remove('touch-dragging');
+      this.touchColumnDrag.columnEl = null;
+      this.touchColumnDrag.active = false;
+      this.draggedColumnEl = null;
+    }
+  }
+
+  shouldInsertBeforeColumn(targetColumn, clientX, clientY) {
+    const rect = targetColumn.getBoundingClientRect();
+    const isVertical = getComputedStyle(this.containerEl).flexDirection.startsWith('column');
+    if (isVertical) {
+      return clientY < rect.top + rect.height / 2;
+    }
+    return clientX < rect.left + rect.width / 2;
   }
 
   /**

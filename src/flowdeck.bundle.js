@@ -13,6 +13,7 @@
     filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>',
     'grip-vertical': '<circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="19" r="1"></circle>',
     'layout-dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect>',
+    menu: '<line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line>',
     moon: '<path d="M12 3a6 6 0 0 0 9 7.5A9 9 0 1 1 12 3z"></path>',
     'more-horizontal': '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
     plus: '<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>',
@@ -2203,6 +2204,15 @@ class CardComponent {
     this.isClosingModal = false;
     this.columnRenderVersions = new Map();
     this.pendingDueDateCommits = new Map();
+    this.touchDrag = {
+      cardEl: null,
+      cardId: null,
+      timerId: null,
+      active: false,
+      startX: 0,
+      startY: 0
+    };
+    this.suppressCardClickUntil = 0;
 
     this.initEvents();
   }
@@ -2335,6 +2345,11 @@ class CardComponent {
     
     // 事件委派：卡片點擊詳情
     columnsContainer.addEventListener('click', (e) => {
+      if (Date.now() < this.suppressCardClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const cardEl = e.target.closest('.kanban-card');
       if (cardEl && !e.target.closest('.btn-delete-card') && !e.target.closest('.btn-delete-column')) {
         this.openCardDetail(cardEl.dataset.cardId).catch((err) => {
@@ -2392,6 +2407,123 @@ class CardComponent {
         this.draggedCardId = null;
       }
     });
+
+    this.setupTouchCardDrag(columnsContainer);
+  }
+
+  setupTouchCardDrag(columnsContainer) {
+    columnsContainer.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' || event.button !== 0) return;
+
+      const cardEl = event.target.closest('.kanban-card');
+      if (!cardEl || event.target.closest('button, input, textarea, select, a')) return;
+
+      this.clearTouchCardDragTimer();
+      this.touchDrag.cardEl = cardEl;
+      this.touchDrag.cardId = cardEl.dataset.cardId;
+      this.touchDrag.active = false;
+      this.touchDrag.startX = event.clientX;
+      this.touchDrag.startY = event.clientY;
+
+      this.touchDrag.timerId = window.setTimeout(() => {
+        if (!this.touchDrag.cardEl) return;
+        this.touchDrag.active = true;
+        this.draggedCardId = this.touchDrag.cardId;
+        this.touchDrag.cardEl.classList.add('touch-dragging');
+        try {
+          this.touchDrag.cardEl.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable if the pointer already ended.
+        }
+      }, 180);
+    });
+
+    columnsContainer.addEventListener('pointermove', (event) => {
+      if (!this.touchDrag.cardEl) return;
+
+      const deltaX = Math.abs(event.clientX - this.touchDrag.startX);
+      const deltaY = Math.abs(event.clientY - this.touchDrag.startY);
+      if (!this.touchDrag.active && (deltaX > 8 || deltaY > 8)) {
+        this.cancelTouchCardDrag();
+        return;
+      }
+
+      if (!this.touchDrag.active) return;
+      event.preventDefault();
+
+      const targetEl = document.elementFromPoint(event.clientX, event.clientY);
+      const cardsList = targetEl ? targetEl.closest('.cards-list') : null;
+      if (!cardsList) return;
+
+      const afterElement = this.getDragAfterElement(cardsList, event.clientY);
+      if (afterElement == null) {
+        cardsList.appendChild(this.touchDrag.cardEl);
+      } else {
+        cardsList.insertBefore(this.touchDrag.cardEl, afterElement);
+      }
+    });
+
+    const finish = (event) => {
+      if (!this.touchDrag.cardEl) return;
+      if (!this.touchDrag.active) {
+        this.cancelTouchCardDrag();
+        return;
+      }
+
+      event.preventDefault();
+      this.suppressCardClickUntil = Date.now() + 350;
+      void this.finishTouchCardDrag();
+    };
+
+    columnsContainer.addEventListener('pointerup', finish);
+    columnsContainer.addEventListener('pointercancel', () => this.cancelTouchCardDrag());
+  }
+
+  clearTouchCardDragTimer() {
+    if (this.touchDrag.timerId) {
+      window.clearTimeout(this.touchDrag.timerId);
+      this.touchDrag.timerId = null;
+    }
+  }
+
+  cancelTouchCardDrag() {
+    this.clearTouchCardDragTimer();
+    if (this.touchDrag.cardEl) {
+      this.touchDrag.cardEl.classList.remove('touch-dragging');
+    }
+    this.touchDrag.cardEl = null;
+    this.touchDrag.cardId = null;
+    this.touchDrag.active = false;
+    this.draggedCardId = null;
+  }
+
+  async finishTouchCardDrag() {
+    const cardEl = this.touchDrag.cardEl;
+    const cardId = this.touchDrag.cardId;
+    this.clearTouchCardDragTimer();
+
+    if (!cardEl || !cardId) {
+      this.cancelTouchCardDrag();
+      return;
+    }
+
+    try {
+      const targetList = cardEl.closest('.cards-list');
+      if (targetList) {
+        const targetColumnId = targetList.dataset.columnId;
+        const cardNodes = targetList.querySelectorAll('.kanban-card');
+        const newOrder = Array.from(cardNodes).indexOf(cardEl);
+        if (targetColumnId && newOrder !== -1) {
+          await cardService.moveCard(cardId, targetColumnId, newOrder);
+        }
+      }
+    } finally {
+      cardEl.classList.remove('touch-dragging');
+      this.touchDrag.cardEl = null;
+      this.touchDrag.cardId = null;
+      this.touchDrag.active = false;
+      this.draggedCardId = null;
+    }
   }
 
   /**
@@ -2671,6 +2803,13 @@ class ColumnComponent {
     this.activeBoardId = null;
     
     this.draggedColumnEl = null;
+    this.touchColumnDrag = {
+      columnEl: null,
+      timerId: null,
+      active: false,
+      startX: 0,
+      startY: 0
+    };
 
     this.initEvents();
   }
@@ -2791,6 +2930,7 @@ class ColumnComponent {
 
     // 綁定拖曳欄位 (Drag & Drop) 事件
     this.setupColumnDragAndDrop();
+    this.setupTouchColumnDrag();
   }
 
   /**
@@ -2828,11 +2968,7 @@ class ColumnComponent {
       
       const targetColumn = e.target.closest('.kanban-column');
       if (targetColumn && targetColumn !== this.draggedColumnEl) {
-        const rect = targetColumn.getBoundingClientRect();
-        const midpoint = rect.left + rect.width / 2;
-        
-        // 根據滑鼠在目標欄位左側或右側，決定插入位置
-        if (e.clientX < midpoint) {
+        if (this.shouldInsertBeforeColumn(targetColumn, e.clientX, e.clientY)) {
           this.containerEl.insertBefore(this.draggedColumnEl, targetColumn);
         } else {
           this.containerEl.insertBefore(this.draggedColumnEl, targetColumn.nextSibling);
@@ -2850,6 +2986,117 @@ class ColumnComponent {
         await this.saveDOMColumnOrder();
       }
     });
+  }
+
+  setupTouchColumnDrag() {
+    this.containerEl.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' || event.button !== 0) return;
+      if (!event.target.closest('.column-header') || event.target.closest('button')) return;
+
+      const columnEl = event.target.closest('.kanban-column');
+      if (!columnEl) return;
+
+      this.clearTouchColumnDragTimer();
+      this.touchColumnDrag.columnEl = columnEl;
+      this.touchColumnDrag.active = false;
+      this.touchColumnDrag.startX = event.clientX;
+      this.touchColumnDrag.startY = event.clientY;
+
+      this.touchColumnDrag.timerId = window.setTimeout(() => {
+        if (!this.touchColumnDrag.columnEl) return;
+        this.touchColumnDrag.active = true;
+        this.draggedColumnEl = columnEl;
+        columnEl.classList.add('touch-dragging');
+        try {
+          columnEl.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable if the pointer already ended.
+        }
+      }, 220);
+    });
+
+    this.containerEl.addEventListener('pointermove', (event) => {
+      if (!this.touchColumnDrag.columnEl) return;
+
+      const deltaX = Math.abs(event.clientX - this.touchColumnDrag.startX);
+      const deltaY = Math.abs(event.clientY - this.touchColumnDrag.startY);
+      if (!this.touchColumnDrag.active && (deltaX > 8 || deltaY > 8)) {
+        this.cancelTouchColumnDrag();
+        return;
+      }
+
+      if (!this.touchColumnDrag.active) return;
+      event.preventDefault();
+
+      const targetEl = document.elementFromPoint(event.clientX, event.clientY);
+      const targetColumn = targetEl ? targetEl.closest('.kanban-column') : null;
+      if (!targetColumn || targetColumn === this.touchColumnDrag.columnEl) return;
+
+      if (this.shouldInsertBeforeColumn(targetColumn, event.clientX, event.clientY)) {
+        this.containerEl.insertBefore(this.touchColumnDrag.columnEl, targetColumn);
+      } else {
+        this.containerEl.insertBefore(this.touchColumnDrag.columnEl, targetColumn.nextSibling);
+      }
+    });
+
+    const finish = (event) => {
+      if (!this.touchColumnDrag.columnEl) return;
+      if (!this.touchColumnDrag.active) {
+        this.cancelTouchColumnDrag();
+        return;
+      }
+
+      event.preventDefault();
+      void this.finishTouchColumnDrag();
+    };
+
+    this.containerEl.addEventListener('pointerup', finish);
+    this.containerEl.addEventListener('pointercancel', () => this.cancelTouchColumnDrag());
+  }
+
+  clearTouchColumnDragTimer() {
+    if (this.touchColumnDrag.timerId) {
+      window.clearTimeout(this.touchColumnDrag.timerId);
+      this.touchColumnDrag.timerId = null;
+    }
+  }
+
+  cancelTouchColumnDrag() {
+    this.clearTouchColumnDragTimer();
+    if (this.touchColumnDrag.columnEl) {
+      this.touchColumnDrag.columnEl.classList.remove('touch-dragging');
+    }
+    this.touchColumnDrag.columnEl = null;
+    this.touchColumnDrag.active = false;
+    this.draggedColumnEl = null;
+  }
+
+  async finishTouchColumnDrag() {
+    const columnEl = this.touchColumnDrag.columnEl;
+    this.clearTouchColumnDragTimer();
+
+    if (!columnEl) {
+      this.cancelTouchColumnDrag();
+      return;
+    }
+
+    try {
+      await this.saveDOMColumnOrder();
+    } finally {
+      columnEl.classList.remove('touch-dragging');
+      this.touchColumnDrag.columnEl = null;
+      this.touchColumnDrag.active = false;
+      this.draggedColumnEl = null;
+    }
+  }
+
+  shouldInsertBeforeColumn(targetColumn, clientX, clientY) {
+    const rect = targetColumn.getBoundingClientRect();
+    const isVertical = getComputedStyle(this.containerEl).flexDirection.startsWith('column');
+    if (isVertical) {
+      return clientY < rect.top + rect.height / 2;
+    }
+    return clientX < rect.left + rect.width / 2;
   }
 
   /**
@@ -3598,12 +3845,69 @@ function initThemeToggle() {
   });
 }
 
+function initMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const toggleButton = document.getElementById('btn-mobile-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const boardList = document.getElementById('board-list');
+  if (!sidebar || !toggleButton || !backdrop) return;
+
+  const closeSidebar = () => {
+    sidebar.classList.remove('is-open');
+    backdrop.classList.add('hidden');
+    toggleButton.setAttribute('aria-expanded', 'false');
+    toggleButton.setAttribute('aria-label', '開啟看板選單');
+  };
+
+  const openSidebar = () => {
+    sidebar.classList.add('is-open');
+    backdrop.classList.remove('hidden');
+    toggleButton.setAttribute('aria-expanded', 'true');
+    toggleButton.setAttribute('aria-label', '關閉看板選單');
+  };
+
+  toggleButton.addEventListener('click', () => {
+    if (sidebar.classList.contains('is-open')) {
+      closeSidebar();
+    } else {
+      openSidebar();
+    }
+  });
+
+  backdrop.addEventListener('click', closeSidebar);
+  window.addEventListener('flowdeck:sidebar-close', closeSidebar);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeSidebar();
+  });
+
+  if (boardList) {
+    boardList.addEventListener('click', (event) => {
+      const boardItem = event.target.closest('.board-item');
+      if (boardItem && !event.target.closest('.btn-delete-board')) {
+        window.dispatchEvent(new CustomEvent('flowdeck:sidebar-close'));
+      }
+    });
+  }
+
+  const desktopQuery = window.matchMedia('(min-width: 901px)');
+  const syncForViewport = () => {
+    if (desktopQuery.matches) closeSidebar();
+  };
+  if (typeof desktopQuery.addEventListener === 'function') {
+    desktopQuery.addEventListener('change', syncForViewport);
+  } else if (typeof desktopQuery.addListener === 'function') {
+    desktopQuery.addListener(syncForViewport);
+  }
+  syncForViewport();
+}
+
 /**
  * 應用程式引導與初始化 (Bootstrapper)
  */
 async function bootstrap() {
   try {
     initThemeToggle();
+    initMobileSidebar();
 
     // 1. 初始化資料庫
     const isIndexedDBOk = await kanbanDB.init();

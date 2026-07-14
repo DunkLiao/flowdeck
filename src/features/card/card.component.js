@@ -64,6 +64,15 @@ export class CardComponent {
     this.isClosingModal = false;
     this.columnRenderVersions = new Map();
     this.pendingDueDateCommits = new Map();
+    this.touchDrag = {
+      cardEl: null,
+      cardId: null,
+      timerId: null,
+      active: false,
+      startX: 0,
+      startY: 0
+    };
+    this.suppressCardClickUntil = 0;
 
     this.initEvents();
   }
@@ -196,6 +205,11 @@ export class CardComponent {
     
     // 事件委派：卡片點擊詳情
     columnsContainer.addEventListener('click', (e) => {
+      if (Date.now() < this.suppressCardClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const cardEl = e.target.closest('.kanban-card');
       if (cardEl && !e.target.closest('.btn-delete-card') && !e.target.closest('.btn-delete-column')) {
         this.openCardDetail(cardEl.dataset.cardId).catch((err) => {
@@ -253,6 +267,123 @@ export class CardComponent {
         this.draggedCardId = null;
       }
     });
+
+    this.setupTouchCardDrag(columnsContainer);
+  }
+
+  setupTouchCardDrag(columnsContainer) {
+    columnsContainer.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' || event.button !== 0) return;
+
+      const cardEl = event.target.closest('.kanban-card');
+      if (!cardEl || event.target.closest('button, input, textarea, select, a')) return;
+
+      this.clearTouchCardDragTimer();
+      this.touchDrag.cardEl = cardEl;
+      this.touchDrag.cardId = cardEl.dataset.cardId;
+      this.touchDrag.active = false;
+      this.touchDrag.startX = event.clientX;
+      this.touchDrag.startY = event.clientY;
+
+      this.touchDrag.timerId = window.setTimeout(() => {
+        if (!this.touchDrag.cardEl) return;
+        this.touchDrag.active = true;
+        this.draggedCardId = this.touchDrag.cardId;
+        this.touchDrag.cardEl.classList.add('touch-dragging');
+        try {
+          this.touchDrag.cardEl.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable if the pointer already ended.
+        }
+      }, 180);
+    });
+
+    columnsContainer.addEventListener('pointermove', (event) => {
+      if (!this.touchDrag.cardEl) return;
+
+      const deltaX = Math.abs(event.clientX - this.touchDrag.startX);
+      const deltaY = Math.abs(event.clientY - this.touchDrag.startY);
+      if (!this.touchDrag.active && (deltaX > 8 || deltaY > 8)) {
+        this.cancelTouchCardDrag();
+        return;
+      }
+
+      if (!this.touchDrag.active) return;
+      event.preventDefault();
+
+      const targetEl = document.elementFromPoint(event.clientX, event.clientY);
+      const cardsList = targetEl ? targetEl.closest('.cards-list') : null;
+      if (!cardsList) return;
+
+      const afterElement = this.getDragAfterElement(cardsList, event.clientY);
+      if (afterElement == null) {
+        cardsList.appendChild(this.touchDrag.cardEl);
+      } else {
+        cardsList.insertBefore(this.touchDrag.cardEl, afterElement);
+      }
+    });
+
+    const finish = (event) => {
+      if (!this.touchDrag.cardEl) return;
+      if (!this.touchDrag.active) {
+        this.cancelTouchCardDrag();
+        return;
+      }
+
+      event.preventDefault();
+      this.suppressCardClickUntil = Date.now() + 350;
+      void this.finishTouchCardDrag();
+    };
+
+    columnsContainer.addEventListener('pointerup', finish);
+    columnsContainer.addEventListener('pointercancel', () => this.cancelTouchCardDrag());
+  }
+
+  clearTouchCardDragTimer() {
+    if (this.touchDrag.timerId) {
+      window.clearTimeout(this.touchDrag.timerId);
+      this.touchDrag.timerId = null;
+    }
+  }
+
+  cancelTouchCardDrag() {
+    this.clearTouchCardDragTimer();
+    if (this.touchDrag.cardEl) {
+      this.touchDrag.cardEl.classList.remove('touch-dragging');
+    }
+    this.touchDrag.cardEl = null;
+    this.touchDrag.cardId = null;
+    this.touchDrag.active = false;
+    this.draggedCardId = null;
+  }
+
+  async finishTouchCardDrag() {
+    const cardEl = this.touchDrag.cardEl;
+    const cardId = this.touchDrag.cardId;
+    this.clearTouchCardDragTimer();
+
+    if (!cardEl || !cardId) {
+      this.cancelTouchCardDrag();
+      return;
+    }
+
+    try {
+      const targetList = cardEl.closest('.cards-list');
+      if (targetList) {
+        const targetColumnId = targetList.dataset.columnId;
+        const cardNodes = targetList.querySelectorAll('.kanban-card');
+        const newOrder = Array.from(cardNodes).indexOf(cardEl);
+        if (targetColumnId && newOrder !== -1) {
+          await cardService.moveCard(cardId, targetColumnId, newOrder);
+        }
+      }
+    } finally {
+      cardEl.classList.remove('touch-dragging');
+      this.touchDrag.cardEl = null;
+      this.touchDrag.cardId = null;
+      this.touchDrag.active = false;
+      this.draggedCardId = null;
+    }
   }
 
   /**

@@ -72,12 +72,69 @@ function initThemeToggle() {
   });
 }
 
+function initMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const toggleButton = document.getElementById('btn-mobile-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const boardList = document.getElementById('board-list');
+  if (!sidebar || !toggleButton || !backdrop) return;
+
+  const closeSidebar = () => {
+    sidebar.classList.remove('is-open');
+    backdrop.classList.add('hidden');
+    toggleButton.setAttribute('aria-expanded', 'false');
+    toggleButton.setAttribute('aria-label', '開啟看板選單');
+  };
+
+  const openSidebar = () => {
+    sidebar.classList.add('is-open');
+    backdrop.classList.remove('hidden');
+    toggleButton.setAttribute('aria-expanded', 'true');
+    toggleButton.setAttribute('aria-label', '關閉看板選單');
+  };
+
+  toggleButton.addEventListener('click', () => {
+    if (sidebar.classList.contains('is-open')) {
+      closeSidebar();
+    } else {
+      openSidebar();
+    }
+  });
+
+  backdrop.addEventListener('click', closeSidebar);
+  window.addEventListener('flowdeck:sidebar-close', closeSidebar);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeSidebar();
+  });
+
+  if (boardList) {
+    boardList.addEventListener('click', (event) => {
+      const boardItem = event.target.closest('.board-item');
+      if (boardItem && !event.target.closest('.btn-delete-board')) {
+        window.dispatchEvent(new CustomEvent('flowdeck:sidebar-close'));
+      }
+    });
+  }
+
+  const desktopQuery = window.matchMedia('(min-width: 901px)');
+  const syncForViewport = () => {
+    if (desktopQuery.matches) closeSidebar();
+  };
+  if (typeof desktopQuery.addEventListener === 'function') {
+    desktopQuery.addEventListener('change', syncForViewport);
+  } else if (typeof desktopQuery.addListener === 'function') {
+    desktopQuery.addListener(syncForViewport);
+  }
+  syncForViewport();
+}
+
 /**
  * 應用程式引導與初始化 (Bootstrapper)
  */
 async function bootstrap() {
   try {
     initThemeToggle();
+    initMobileSidebar();
 
     // 1. 初始化資料庫
     const isIndexedDBOk = await kanbanDB.init();
